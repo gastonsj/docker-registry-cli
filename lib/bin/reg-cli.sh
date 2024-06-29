@@ -52,7 +52,7 @@ get_repos() {
 
 get_tags() {
   local reg=$1 repo=$2
-  curl -s -u "$REGISTRY_USER:$REGISTRY_PASS" "$reg/v2/$repo/tags/list" | jq -r '.tags|.[]' 2>/dev/null
+  curl -s -u "$REGISTRY_USER:$REGISTRY_PASS" "$reg/v2/$repo/tags/list" | jq -r '.tags|.[]' 2>/dev/null | sort
 }
 
 get_digest() {
@@ -180,7 +180,7 @@ remove_tag() {
   if [ -n "$digest" ] ; then
     log_info "digest: $digest"
 
-    res=$(curl -s -o /dev/null -w "%{http_code}" \
+    res=$(curl -u "$REGISTRY_USER:$REGISTRY_PASS" -s -o /dev/null -w "%{http_code}" \
       -H $MANIFEST_HEAD -X DELETE $reg/v2/$repo/manifests/$digest)
     if [ $res -eq 202 ] ; then
       log_info "✔ $repo:$tag removed"
