@@ -20,6 +20,8 @@ log_error() {
 CATALOG_NUM=500 # page size of catalog
 MANIFEST_HEAD="Accept:application/vnd.docker.distribution.manifest.v2+json"
 
+source .env
+
 split() {
   local array=()
   local IFS=","; read -r -a array <<<$1
@@ -45,24 +47,24 @@ is_option() {
 
 get_repos() {
   local reg=$1
-  curl -s "$reg/v2/_catalog?n=$CATALOG_NUM" | jq -r '.repositories|.[]' 2>/dev/null
+  curl -s -u "$REGISTRY_USER:$REGISTRY_PASS" "$reg/v2/_catalog?n=$CATALOG_NUM" | jq -r '.repositories|.[]' 2>/dev/null
 }
 
 get_tags() {
   local reg=$1 repo=$2
-  curl -s "$reg/v2/$repo/tags/list" | jq -r '.tags|.[]' 2>/dev/null
+  curl -s -u "$REGISTRY_USER:$REGISTRY_PASS" "$reg/v2/$repo/tags/list" | jq -r '.tags|.[]' 2>/dev/null
 }
 
 get_digest() {
   local reg=$1 repo=$2 tag=$3
-  local res=$(curl -v -s -H $MANIFEST_HEAD $reg/v2/$repo/manifests/$tag 2>&1)
+  local res=$(curl -u "$REGISTRY_USER:$REGISTRY_PASS" -v -s -H $MANIFEST_HEAD $reg/v2/$repo/manifests/$tag 2>&1)
   local digest=$(echo "$res" | grep -i "< Docker-Content-Digest:" | awk '{print ($3)}')
   echo ${digest//[$'\t\r\n']}
 }
 
 get_manifest() {
   local reg=$1 repo=$2 tag=$3
-  curl -s "$reg/v2/$repo/manifests/$tag" 2>/dev/null
+  curl -s -u "$REGISTRY_USER:$REGISTRY_PASS" "$reg/v2/$repo/manifests/$tag" 2>/dev/null
 }
 
 list_images() {
@@ -189,8 +191,15 @@ remove_tag() {
 }
 
 remove_tags() {
-  local images=($@) force
+  local images=($@) force keep
   has_option "-f" $@ && force=1
+  for arg in "${images[@]}"; do
+    if [[ $arg == "-k" || $arg == "--keep" ]]; then
+      keep=${images[$((index+1))]}
+      break
+    fi
+    ((index++))
+  done
 
   local reg repo_tags repo tags 
   for image in "${images[@]}" ; do
@@ -205,13 +214,33 @@ remove_tags() {
       tags=($(split ${repo_tags##*:})) || \
       tags=($(get_tags $reg $repo))
 
-    for tag in "${tags[@]}" ; do
-      if [ -z $force ] ; then
-        log_info "going to remove $repo:$tag"
-        read -p "Are you sure? [y/N] " -r
-      fi
-      [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
-    done
+    if [ -n "$keep" ]; then
+      prune_tags $reg $repo $keep
+    else
+      for tag in "${tags[@]}" ; do
+        if [ -z $force ] ; then
+          log_info "going to remove $repo:$tag"
+          read -p "Are you sure? [y/N] " -r
+        fi
+        [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
+      done
+    fi
+  done
+}
+
+prune_tags() {
+  local reg=$1 repo=$2 keep=$3
+  tags=($(get_tags $reg $repo))
+  total_tags=${#tags[@]}
+  if [ $total_tags -le $keep ]; then
+    log_info "No tags to remove, the number of tags ($total_tags) is less than or equal to the number to keep ($keep)."
+    return
+  fi
+
+  tags_to_remove=(${tags[@]:0:$(($total_tags - $keep))})
+  for tag in "${tags_to_remove[@]}" ; do
+    log_info "Removing $repo:$tag"
+    remove_tag $reg $repo $tag
   done
 }
 
