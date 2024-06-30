@@ -191,22 +191,24 @@ remove_tag() {
 }
 
 remove_tags() {
-  local images=($@) force keep
+  local images=($@) force keep=$REGISTRY_KEEP_TAGS
   has_option "-f" $@ && force=1
   for arg in "${images[@]}"; do
-    if [[ $arg == "-k" || $arg == "--keep" ]]; then
-      next_value=${images[$((index+1))]}
+    if [[ $arg == "-k="* ]]; then
+      next_value=${arg#*=} # Obtener el valor después de "-k="
       # Verificar si el siguiente valor es un número
       if [[ $next_value =~ ^[0-9]+$ ]]; then
           keep=$next_value
       else
+          echo "Invalid value for -k option: $next_value"
           keep=$REGISTRY_KEEP_TAGS
       fi
+      echo "REGISTRY_KEEP_TAGS: $keep"
       break
     fi
     ((index++))
   done
-
+  
   local reg repo_tags repo tags 
   for image in "${images[@]}" ; do
     is_option $image && continue
@@ -214,13 +216,15 @@ remove_tags() {
     reg=${image%%/*}
     repo_tags=${image#*/}
     repo=${repo_tags%:*}
-
+    echo "$reg $repo_tags $repo"
     # has tags
-    [[ $repo_tags =~ : ]] && \
-      tags=($(split ${repo_tags##*:})) || \
-      tags=($(get_tags $reg $repo))
-
-    # Obtener la longitud del array tags
+    # verify if repo_tags has ':'
+    if [[ $repo_tags =~ : ]]; then
+        tags=($(split ${repo_tags##*:}))
+        keep=0
+    else
+        tags=($(get_tags $reg $repo))
+    fi
     length=${#tags[@]}
     # Iterar sobre cada etiqueta desde el primer elemento hasta el penúltimo menos 'keep'
     for (( i=0; i<length-keep; i++ )); do
@@ -231,33 +235,6 @@ remove_tags() {
         fi
         [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
     done
-    # if [ -n "$keep" ]; then
-    #   prune_tags $reg $repo $keep
-    # else
-    #   for tag in "${tags[@]}" ; do
-    #     if [ -z $force ] ; then
-    #       log_info "going to remove $repo:$tag"
-    #       read -p "Are you sure? [y/N] " -r
-    #     fi
-    #     [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
-    #   done
-    # fi
-  done
-}
-
-prune_tags() {
-  local reg=$1 repo=$2 keep=$3
-  tags=($(get_tags $reg $repo))
-  total_tags=${#tags[@]}
-  if [ $total_tags -le $keep ]; then
-    log_info "No tags to remove, the number of tags ($total_tags) is less than or equal to the number to keep ($keep)."
-    return
-  fi
-
-  tags_to_remove=(${tags[@]:0:$(($total_tags - $keep))})
-  for tag in "${tags_to_remove[@]}" ; do
-    log_info "Removing $repo:$tag"
-    remove_tag $reg $repo $tag
   done
 }
 
