@@ -195,7 +195,13 @@ remove_tags() {
   has_option "-f" $@ && force=1
   for arg in "${images[@]}"; do
     if [[ $arg == "-k" || $arg == "--keep" ]]; then
-      keep=${images[$((index+1))]}
+      next_value=${images[$((index+1))]}
+      # Verificar si el siguiente valor es un número
+      if [[ $next_value =~ ^[0-9]+$ ]]; then
+          keep=$next_value
+      else
+          keep=$REGISTRY_KEEP_TAGS
+      fi
       break
     fi
     ((index++))
@@ -214,17 +220,28 @@ remove_tags() {
       tags=($(split ${repo_tags##*:})) || \
       tags=($(get_tags $reg $repo))
 
-    if [ -n "$keep" ]; then
-      prune_tags $reg $repo $keep
-    else
-      for tag in "${tags[@]}" ; do
-        if [ -z $force ] ; then
-          log_info "going to remove $repo:$tag"
-          read -p "Are you sure? [y/N] " -r
+    # Obtener la longitud del array tags
+    length=${#tags[@]}
+    # Iterar sobre cada etiqueta desde el primer elemento hasta el penúltimo menos 'keep'
+    for (( i=0; i<length-keep; i++ )); do
+        tag=${tags[i]}
+        if [ -z "$force" ] ; then
+            log_info "going to remove $repo:$tag"
+            read -p "Are you sure? [y/N] " -r
         fi
         [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
-      done
-    fi
+    done
+    # if [ -n "$keep" ]; then
+    #   prune_tags $reg $repo $keep
+    # else
+    #   for tag in "${tags[@]}" ; do
+    #     if [ -z $force ] ; then
+    #       log_info "going to remove $repo:$tag"
+    #       read -p "Are you sure? [y/N] " -r
+    #     fi
+    #     [[ $REPLY =~ ^[Yy]$ || $force ]] && remove_tag $reg $repo $tag
+    #   done
+    # fi
   done
 }
 
